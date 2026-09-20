@@ -1,29 +1,38 @@
-const express = require('express');
-const fs = require('fs');
-const path = require('path');
+const express = require("express");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
-const port = process.env.PORT || 3000;
-const key = process.env.LOADER_KEY;
-const scriptPath = path.join(__dirname, 'script.lua');
+const PORT = process.env.PORT || 3000;
 
-function denied(res) {
-  res.status(403).type('text/plain').set('Cache-Control', 'no-store').send('Acceso denegado');
+const SCRIPT_PATH = path.join(__dirname, "script.lua");
+
+let script;
+
+try {
+    script = fs.readFileSync(SCRIPT_PATH, "utf8");
+} catch (err) {
+    console.error("No se pudo cargar script.lua:", err);
+    process.exit(1);
 }
 
-app.get(['/loader', '/'], (req, res) => {
-  const supplied = req.get('x-loader-key') || req.query.key;
-  if (!key || supplied !== key) return denied(res);
-
-  try {
-    res.status(200)
-      .type('text/plain')
-      .set('Cache-Control', 'no-store, no-cache, must-revalidate')
-      .set('X-Content-Type-Options', 'nosniff')
-      .send(fs.readFileSync(scriptPath, 'utf8'));
-  } catch {
-    res.status(500).type('text/plain').send('Loader error');
-  }
+// Página principal: no muestra el script
+app.get("/", (req, res) => {
+    res.status(403).type("text/plain").send("Acceso denegado");
 });
 
-app.listen(port, '0.0.0.0', () => console.log(`Loader running on ${port}`));
+// Loader público
+app.get("/loader", (req, res) => {
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store");
+    res.status(200).send(script);
+});
+
+// Cualquier otra ruta
+app.use((req, res) => {
+    res.status(404).type("text/plain").send("No encontrado");
+});
+
+app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Loader iniciado en el puerto ${PORT}`);
+});
