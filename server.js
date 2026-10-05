@@ -12,6 +12,7 @@ const PORT = process.env.PORT || 3000;
 // ===============================
 
 const SCRIPT_PATH = path.join(__dirname, "script.lua");
+const SCRIPT2_PATH = path.join(__dirname, "script2.lua");
 
 const TOKEN_LIFETIME = 30 * 1000; // 30 segundos
 const MAX_REQUESTS_PER_MINUTE = 10;
@@ -22,9 +23,11 @@ const MAX_ACTIVE_TOKENS_PER_IP = 3;
 // ===============================
 
 let SCRIPT;
+let SCRIPT2;
 
 try {
     SCRIPT = fs.readFileSync(SCRIPT_PATH, "utf8");
+    SCRIPT2 = fs.readFileSync(SCRIPT2_PATH, "utf8");
 } catch (err) {
     console.error("ERROR: no se encontró script.lua");
     process.exit(1);
@@ -258,6 +261,83 @@ return fn()
 });
 
 // ===============================
+// LOADER 2 PÚBLICO
+// ===============================
+
+app.get("/loader2", (req, res) => {
+    const ip = getIP(req);
+
+    if (isBlocked(ip)) {
+        return res
+            .status(403)
+            .type("text/plain")
+            .send("Acceso denegado");
+    }
+
+    if (!rateLimit(ip)) {
+        blockIP(ip, 120);
+
+        return res
+            .status(429)
+            .type("text/plain")
+            .send("Acceso temporalmente bloqueado");
+    }
+
+    const token = createToken(ip);
+
+    if (!token) {
+        blockIP(ip, 60);
+
+        return res
+            .status(429)
+            .type("text/plain")
+            .send("Demasiadas solicitudes");
+    }
+
+    const bootstrap = `
+local TOKEN = "${token}"
+
+local URL = "https://script-lua-gui-creator-beta.onrender.com/payload2"
+
+local ok, result = pcall(function()
+    return game:HttpGet(URL .. "?token=" .. TOKEN)
+end)
+
+if not ok then
+    return
+end
+
+if type(result) ~= "string" then
+    return
+end
+
+if result == "Acceso denegado" then
+    return
+end
+
+local fn, err = loadstring(result)
+
+if not fn then
+    return
+end
+
+return fn()
+`;
+
+    res.setHeader(
+        "Content-Type",
+        "text/plain; charset=utf-8"
+    );
+
+    res.setHeader(
+        "Cache-Control",
+        "no-store, no-cache, must-revalidate"
+    );
+
+    res.status(200).send(bootstrap);
+});
+
+// ===============================
 // SCRIPT REAL
 // ===============================
 
@@ -336,6 +416,81 @@ app.get("/payload", (req, res) => {
     );
 
     res.status(200).send(SCRIPT);
+});
+
+// ===============================
+// SCRIPT REAL 2
+// ===============================
+
+app.get("/payload2", (req, res) => {
+    const ip = getIP(req);
+    const token = req.query.token;
+
+    if (isBlocked(ip)) {
+        return res
+            .status(403)
+            .type("text/plain")
+            .send("Acceso denegado");
+    }
+
+    if (!token || typeof token !== "string") {
+        return res
+            .status(403)
+            .type("text/plain")
+            .send("Acceso denegado");
+    }
+
+    const data = tokens.get(token);
+
+    if (!data) {
+        return res
+            .status(403)
+            .type("text/plain")
+            .send("Acceso denegado");
+    }
+
+    if (data.ip !== ip) {
+        tokens.delete(token);
+        blockIP(ip, 60);
+
+        return res
+            .status(403)
+            .type("text/plain")
+            .send("Acceso denegado");
+    }
+
+    if (data.expires <= now()) {
+        tokens.delete(token);
+
+        return res
+            .status(403)
+            .type("text/plain")
+            .send("Acceso denegado");
+    }
+
+    if (data.used) {
+        tokens.delete(token);
+
+        return res
+            .status(403)
+            .type("text/plain")
+            .send("Acceso denegado");
+    }
+
+    data.used = true;
+    tokens.delete(token);
+
+    res.setHeader(
+        "Content-Type",
+        "text/plain; charset=utf-8"
+    );
+
+    res.setHeader(
+        "Cache-Control",
+        "no-store, no-cache, must-revalidate"
+    );
+
+    res.status(200).send(SCRIPT2);
 });
 
 // ===============================
