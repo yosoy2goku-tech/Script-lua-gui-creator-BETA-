@@ -494,6 +494,84 @@ app.get("/payload2", (req, res) => {
 });
 
 // ===============================
+// LOADERS 3 AL 12 (VACÍOS)
+// ===============================
+
+const EXTRA_SCRIPTS = {};
+
+try {
+    for (let i = 3; i <= 12; i++) {
+        EXTRA_SCRIPTS[i] = fs.readFileSync(
+            path.join(__dirname, `script${i}.lua`),
+            "utf8"
+        );
+    }
+} catch (err) {
+    console.error("ERROR: faltan uno o más archivos script3.lua a script12.lua");
+    process.exit(1);
+}
+
+for (let i = 3; i <= 12; i++) {
+    const loaderNumber = i;
+
+    app.get(`/loader${loaderNumber}`, (req, res) => {
+        const ip = getIP(req);
+
+        if (isBlocked(ip)) {
+            return res.status(403).type("text/plain").send("Acceso denegado");
+        }
+
+        if (!rateLimit(ip)) {
+            blockIP(ip, 120);
+            return res.status(429).type("text/plain").send("Acceso temporalmente bloqueado");
+        }
+
+        const token = createToken(ip);
+        if (!token) {
+            blockIP(ip, 60);
+            return res.status(429).type("text/plain").send("Demasiadas solicitudes");
+        }
+
+        const bootstrap = `
+local TOKEN = "${token}"
+local URL = "https://script-lua-gui-creator-beta.onrender.com/payload${loaderNumber}"
+local ok, result = pcall(function()
+    return game:HttpGet(URL .. "?token=" .. TOKEN)
+end)
+if not ok or type(result) ~= "string" then return end
+local fn = loadstring(result)
+if not fn then return end
+return fn()
+`;
+
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+        res.status(200).send(bootstrap);
+    });
+
+    app.get(`/payload${loaderNumber}`, (req, res) => {
+        const ip = getIP(req);
+        const token = req.query.token;
+
+        if (isBlocked(ip) || !token || typeof token !== "string") {
+            return res.status(403).type("text/plain").send("Acceso denegado");
+        }
+
+        const data = tokens.get(token);
+        if (!data || data.ip !== ip || data.expires <= now() || data.used) {
+            tokens.delete(token);
+            return res.status(403).type("text/plain").send("Acceso denegado");
+        }
+
+        data.used = true;
+        tokens.delete(token);
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+        res.status(200).send(EXTRA_SCRIPTS[loaderNumber]);
+    });
+}
+
+// ===============================
 // RUTAS DESCONOCIDAS
 // ===============================
 
