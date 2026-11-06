@@ -937,7 +937,7 @@ local function listSaves()
 		if ok then
 			for _, p in ipairs(files) do
 				local n = tostring(p):match("([^/\\]+)%.json$")
-				if n then out[#out + 1] = n end
+				if n and n ~= "_autosave" then out[#out + 1] = n end
 			end
 		end
 	else
@@ -971,6 +971,14 @@ local function delSave(n)
 	return true
 end
 
+local lastAuto
+local function autosave()
+	local ok, raw = pcall(function() return HS:JSONEncode(ser(root)) end)
+	if ok and raw ~= lastAuto then
+		local ok2 = writeSave("_autosave", raw)
+		if ok2 then lastAuto = raw end
+	end
+end
 local nameBox = box(saveW.body, UDim2.fromOffset(4, 4), UDim2.new(1, -90, 0, 28), "")
 nameBox.PlaceholderText = "nombre del guardado"
 btn(saveW.body, "Guardar", UDim2.new(1, -82, 0, 4), UDim2.fromOffset(78, 28), function()
@@ -1212,6 +1220,7 @@ do
 			task.delay(3, function() armed = false; if closeB.Parent then closeB.Text = "Cerrar GuiMaker" end end)
 			return
 		end
+		pcall(autosave)
 		for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
 		UI:Destroy(); root:Destroy()
 	end)
@@ -1280,4 +1289,16 @@ end)
 BUILDING = false
 refreshDex(); refreshProps(); refreshSaves()
 dexW.show(); propW.show()
-toast("GuiMaker listo - toca '+' o 'Anadir' para crear elementos")
+local last = readSave("_autosave")
+if last and ((last.ch and #last.ch > 0)) then
+	loadData(last)
+	toast("Autoguardado restaurado - continuas donde lo dejaste")
+else
+	toast("GuiMaker listo - toca '+' o 'Anadir' para crear elementos")
+end
+task.spawn(function()
+	while UI.Parent do
+		task.wait(4)
+		pcall(autosave)
+	end
+end)
